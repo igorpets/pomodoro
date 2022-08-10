@@ -18,7 +18,7 @@ import java.util.Enumeration;
 import java.util.GregorianCalendar;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Приложение помогает использовать "Метод помидора".
+/** Приложение помогает использовать "Технику Помидора".
  *
  *   Это техника управления временем, предложенная Франческо Чирило в конце 1980-х,
  *   предполагает увеличение эффективности работы при меньших временных затратах
@@ -39,14 +39,14 @@ import java.util.concurrent.ConcurrentHashMap;
  *   7. Визуально отображать текущее состояние по технике - работа или отдых [, с прогрессбаром?].
  *   8. Когда все циклы-помидоры будут завершены, сообщить пользователю "Работа завершена".
  *
- *  Используется библиотека org.telegram:telegrambots:6.1.0
+ *  Используются библиотеки:
+ *      org.springframework.boot:spring-boot-starter-data-mongodb
+ *      org.telegram:telegrambots:6.1.0
  */
 
 public class PomodoroTelegram extends TelegramLongPollingBot {
     // Имя телеграм-бота.
     private static String bot_name = "MyPomodoro77Bot";
-    // Массив для хранения пользовательских параметров и состояния.
-    private static final ConcurrentHashMap<Long, UserData> userData = new ConcurrentHashMap<Long, UserData>();
     @Autowired
     private UserDataRepository repository;
     // Признак ведения журнала сообщений пользователей.
@@ -55,34 +55,10 @@ public class PomodoroTelegram extends TelegramLongPollingBot {
     // нициализация приложения и чтение параметров.
     public void init() throws Exception {
         System.out.println("Выполнен запуск бота Помидоро!");
-        //repository.save(new UserData((long)101, "Igor Pets"));
-        //repository.save(new UserData((long)102, "Julia Pets"));
-        //repository.save(new UserData((long)103, "Татьяна Курабатова"));
-
-        // todo:Надо убрать второе хранилище, оставить только Mongo.
-        // Сейчас загружаем данные о пользователях из базы в локальное хранилище класса.
-        for (UserData userDataMongo : repository.findAll()) {
-            userData.put(userDataMongo.chatId, userDataMongo);
-        }
-        /*
-        System.out.println("Найдены  пользователи:");
-        System.out.println("-------------------------------");
-        for (UserData userData : repository.findAll()) {
-            System.out.println(userData);
-        }
-        System.out.println();
-        // fetch an individual customer
-        System.out.println("Customer found with findByFirstName('Alice'):");
-        System.out.println("--------------------------------");
-        System.out.println(repository.findByFirstName("Alice"));
-
-        System.out.println("Customers found with findByLastName('Smith'):");
-        System.out.println("--------------------------------");
-        for (Customer customer : repository.findByLastName("Smith")) {
-            System.out.println(customer);
-        }
-        */
-
+        // тестовые записи в БД.
+        // repository.save(new UserData((long)101, "Igor Pets"));
+        // repository.save(new UserData((long)102, "Julia Pets"));
+        // repository.save(new UserData((long)103, "Татьяна Курабатова"));
 
         new Thread(() -> {
             try {
@@ -105,41 +81,36 @@ public class PomodoroTelegram extends TelegramLongPollingBot {
      *  Проверяем всех пользователей на исполнение таймера "работа-отдых".
      */
     private void pomodoro_loop() {
-        // Создаем перечисление для перебора всех элементов массива.
-        Enumeration enu = userData.elements();
-        if (enu.hasMoreElements()) {
+        // Выполняем цикл перебора всех элементов-пользователей в репозитории.
+        for (UserData user_data : repository.findAll()) {
             // Проверяем всех пользователей на срабатывание таймера работы-отдыха.
-            do {
-                UserData user_data = (UserData) enu.nextElement();
-                if (user_data.timerType != TimerType.NONE) {
-                    Instant curr_time = Instant.now();
-                    // Проверяем - время текущего таймера завершилось?
-                    if (curr_time.isAfter(user_data.time)) {
-                        if (user_data.timerType == TimerType.WORK) {
-                            // Отдых имеет смысл только если за ним будет еще одна работа.
-                            if (user_data.cycle > 0) {
-                                // Запускаем таймер отдыха.
-                                user_data.time = curr_time.plus(user_data.cfgRelax, ChronoUnit.MINUTES);
-                                user_data.timerType = TimerType.RELAX;
-                                repository.save(user_data);
-                                sendMsg(user_data.chatId, getTime()+" Время отдыха " +
-                                        getMinutesString(user_data.cfgRelax) + "!");
-                            } else {
-                                to_stop(user_data);
-                            }
-                        } else {
-                            // Запускаем таймер работы.
-                            user_data.time = curr_time.plus(user_data.cfgWork, ChronoUnit.MINUTES);
-                            user_data.timerType = TimerType.WORK;
-                            user_data.cycle--;
+            if (user_data.timerType != TimerType.NONE) {
+                Instant curr_time = Instant.now();
+                // Проверяем - время текущего таймера завершилось?
+                if (curr_time.isAfter(user_data.time)) {
+                    if (user_data.timerType == TimerType.WORK) {
+                        // Отдых имеет смысл только если за ним будет еще одна работа.
+                        if (user_data.cycle > 0) {
+                            // Запускаем таймер отдыха.
+                            user_data.time = curr_time.plus(user_data.cfgRelax, ChronoUnit.MINUTES);
+                            user_data.timerType = TimerType.RELAX;
                             repository.save(user_data);
-                            sendMsgWork(user_data);
+                            sendMsg(user_data.chatId, getTime() + " Время отдыха " +
+                                    getMinutesString(user_data.cfgRelax) + "!");
+                        } else {
+                            to_stop(user_data);
                         }
+                    } else {
+                        // Запускаем таймер работы.
+                        user_data.time = curr_time.plus(user_data.cfgWork, ChronoUnit.MINUTES);
+                        user_data.timerType = TimerType.WORK;
+                        user_data.cycle--;
+                        repository.save(user_data);
+                        sendMsgWork(user_data);
                     }
                 }
-                //out.println("Пользователь" + user_data.userName);
-            } while (enu.hasMoreElements());
-            //out.println();
+            }
+            //out.println("Пользователь" + user_data.userName);
         }
     }
 
@@ -250,7 +221,7 @@ public class PomodoroTelegram extends TelegramLongPollingBot {
      *  @param chat - Объект чата с пользователем.
      */
     private UserData getUserData(long chat_id, Chat chat) {
-        UserData user_data = userData.get(chat_id);
+        UserData user_data = repository.findByChatId(chat_id);
         if (user_data == null) {
             String user_name = chat.getUserName();
             if (user_name == null) {
@@ -266,7 +237,7 @@ public class PomodoroTelegram extends TelegramLongPollingBot {
             }
             // Создаем новый объект для хранения параметров пользователя.
             user_data = new UserData(chat_id, user_name);
-            userData.put(chat_id, user_data);
+            repository.save(user_data);
         }
         return user_data;
     }
